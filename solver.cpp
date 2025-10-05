@@ -144,13 +144,11 @@ int find_table_dist(Position &pos, vector<vector<int>> table_dist, vector<vector
         for(auto rq: reds){
             Piece rp = pos.peek_piece_at(rq);
             if(bp.type == Duck) continue;
-            if(bp.type > rp.type){
-                if(bp.type == Chariot && table_dist[bq][rq] < dist){
-                    dist = table_dist[bq][rq] / chariot_table[bq][rq];
-                }
-                else if(table_dist[bq][rq] < dist){
-                    dist = table_dist[bq][rq];
-                }
+            if(bp.type == Chariot){
+                dist = min(dist, (table_dist[bq][rq] / chariot_table[bq][rq]));
+            }
+            else{
+                dist = min(dist, table_dist[bq][rq]);
             }
         }
     }
