@@ -24,97 +24,60 @@ using namespace std;
  * Good luck!
  */
 
-int prime_MST(Position &pos, vector<vector<int>> &table_dist){
-    vector<Square> reds = BoardView(pos.pieces(Red)).to_vector();
-    int n = reds.size();
-    if(n == 0){
-        return 0;
-    }
+const int dr[4] = {0, 0, 1, -1}; 
+const int dc[4] = {1, -1, 0, 0};
 
-    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
-    vector<int> min_edge(n, INT32_MAX);
-    vector<bool> visited(n, false);
-
-    min_edge[0] = 0;
-    pq.push({0, 0});
-
-    while(!pq.empty()){
-        int cur = pq.top().second;
-        pq.pop();
-        
-        if(visited[cur]) continue;
-
-        visited[cur] = true;
-
-        for(int i = 0; i < n; i++){
-            int dist = table_dist[reds[i]][reds[cur]];
-            if(!visited[i] && dist < min_edge[i]){
-                min_edge[i] = dist;
-                pq.push({dist, i});
-            }
-        }
-    }
-    
-    int total_mst = 0;
-    for(int i = 0; i < n; i++){
-        total_mst += min_edge[i];
-    }
-
-    return total_mst;
-}
-
-void build_dist_table(Position &pos, Square sq, vector<vector<int>> &table_dist){
+int bfs_general(Position &pos, Square start, Square end){
     queue<pair<Square, int>> q;
+    Board all_pieces = pos.pieces();
+    uint64_t obstacle = all_pieces;
+    obstacle &= ~(1ull << start);
+    obstacle &= ~(1ull << end);
+
     uint64_t visited = 0;
-    
-    Board ducks = pos.pieces(Black, Duck);
-    if(ducks & (1ull << sq)) return;
+    visited |= (1ull << start);
+    q.push({start, 0});
 
-    visited |= ducks;
-
-    q.push({sq, 0});
-    visited |= (1ull << sq);
-    table_dist[sq][sq] = 0;
-    int dr[4] = {0, 0, 1, -1}; 
-    int dc[4] = {1, -1, 0, 0};
-    
     while(!q.empty()){
-        auto [cur, cur_dist] = q.front();
+        auto [cur, dist] = q.front();
         q.pop();
+
         int r = rank_of(cur), c = file_of(cur);
         for(int i = 0; i < 4; i++){
             int nr = r + dr[i], nc = c + dc[i];
             if(nr < 0 || nr >= 4 || nc < 0 || nc >= 8) continue;
             
             Square next_sq = (Square)(nr * 8 + nc);
+            uint64_t next_mask = 1ull << next_sq;
 
-            if(visited & (1ull << next_sq)) continue;
+            if((obstacle & next_mask) || (visited & next_mask)) continue;
             
-            visited |= (1ull << next_sq);
-            table_dist[sq][next_sq] = cur_dist + 1;
-            q.push({next_sq, cur_dist + 1});
+            if(next_sq == end){
+                return dist + 1;
+            }
+            visited |= next_mask;
+            q.push({next_sq, dist + 1});
         }
     }
+
+    return INT32_MAX;
 }
 
-void build_chariot_table(Position &pos, Square sq, vector<vector<int>> &chariot_table){
+int bfs_chariot(Position &pos, Square start, Square end){
     queue<pair<Square, int>> q;
-    uint64_t visited = 0;
-    
-    Board ducks = pos.pieces(Black, Duck);
-    if(ducks & (1ull << sq)) return;
+    Board all_pieces = pos.pieces();
+    uint32_t obstacle = all_pieces;
+    obstacle &= ~(1ull << start);
+    obstacle &= ~(1ull << end);
 
-    visited |= ducks;
+    uint32_t visited = 0;
+    visited |= (1ull << start);
+    q.push({start, 0});
 
-    q.push({sq, 0});
-    visited |= (1ull << sq);
-    chariot_table[sq][sq] = 0;
-    int dr[4] = {0, 0, 1, -1}; 
-    int dc[4] = {1, -1, 0, 0};
-    
     while(!q.empty()){
-        auto [cur, cur_dist] = q.front();
+        auto [cur, dist] = q.front();
         q.pop();
+
         int r = rank_of(cur), c = file_of(cur);
         for(int i = 0; i < 4; i++){
             int nr = r, nc = c;
@@ -124,31 +87,41 @@ void build_chariot_table(Position &pos, Square sq, vector<vector<int>> &chariot_
                 if(nr < 0 || nr >= 4 || nc < 0 || nc >= 8) break;
 
                 Square next_sq = (Square)(nr * 8 + nc);
-                if(ducks & (1ull << next_sq)) break;
-                if(visited & (1ull << next_sq)) continue;
+                uint32_t next_mask = 1ull << next_sq;
 
-                visited |= (1ull << next_sq);
-                chariot_table[sq][next_sq] = cur_dist + 1;
-                q.push({next_sq, cur_dist + 1});
+                if (obstacle & next_mask) break;
+
+                if (visited & next_mask) continue;
+                
+                if(next_sq == end){
+                    return dist + 1;
+                }
+                visited |= next_mask;
+                q.push({next_sq, dist + 1});
             }
         }
     }
+
+    return INT32_MAX;
 }
 
-int find_table_dist(Position &pos, vector<vector<int>> table_dist, vector<vector<int>> &chariot_table){
+int find_table_dist(Position &pos){
     vector<Square> blacks = BoardView(pos.pieces(Black)).to_vector();
     vector<Square> reds = BoardView(pos.pieces(Red)).to_vector();
+    if(reds.size() == 0){
+        return 0;
+    }
+
     int dist = INT32_MAX;
-    for(auto bq: blacks){
-        Piece bp = pos.peek_piece_at(bq);
-        for(auto rq: reds){
-            Piece rp = pos.peek_piece_at(rq);
-            if(bp.type == Duck) continue;
-            if(bp.type == Chariot){
-                dist = min(dist, (table_dist[bq][rq] / chariot_table[bq][rq]));
+    for(auto bp: blacks){
+        Piece p = pos.peek_piece_at(bp);
+        for(auto rp: reds){
+            if(p.type == Duck) continue;
+            if(p.type == Chariot){
+                dist = min(dist, bfs_chariot(pos, bp, rp));
             }
             else{
-                dist = min(dist, table_dist[bq][rq]);
+                dist = min(dist, bfs_general(pos, bp, rp));
             }
         }
     }
@@ -156,104 +129,58 @@ int find_table_dist(Position &pos, vector<vector<int>> table_dist, vector<vector
     return dist;
 }
 
-int find_table_mst(Position &pos, unordered_map<uint32_t, int> &table_mst, vector<vector<int>> &table_dist){
-    Board red_pieces = pos.pieces(Red);
-    int mst = -1;
-    if(table_mst.find(red_pieces) != table_mst.end()){
-        mst = table_mst[red_pieces];
+
+int dfs(Position &pos, int g, int threshold, vector<Move> &path, unordered_map<uint32_t, int> &table_mst, unordered_map<string, int> &TT) {
+    int reds = BoardView(pos.pieces(Red)).to_vector().size();
+    int h = reds + find_table_dist(pos);
+    int f = g + h;
+    if (f > threshold) return f;
+    if (pos.winner() == Black) return -1;
+
+    string key = pos.toFEN();
+    if (TT.find(key) != TT.end() && TT[key] <= g) return INT32_MAX;
+    TT[key] = g;
+
+    int min_next = INT32_MAX;
+    MoveList mvs(pos);
+    for (Move mv : mvs) {
+        Position next_pos(pos);
+        if (!next_pos.do_move(mv)) continue;
+        path.push_back(mv);
+        int t = dfs(next_pos, g + 1, threshold, path, table_mst, TT);
+        if (t == -1) return -1;
+        path.pop_back();
+        if (t < min_next) min_next = t;
     }
-    else{
-        mst = prime_MST(pos, table_dist);
-        table_mst[red_pieces] = mst;
-    }
-    return mst;
+    return min_next;
 }
 
-void resolve(Position &pos)
-{
+void resolve(Position &pos) {
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_REALTIME, &start_time);
-
-    // info << pos;
-    /* A random number generator is available globally */
     int random_num_below_42 = rng(42);
-
-    vector<vector<int>> table_dist(32, vector<int>(32, INT32_MAX));
-    vector<vector<int>> chariot_table(32, vector<int>(32, INT32_MAX));
-    Board all_pieces = (~pos.pieces()) | (pos.pieces(Red)) | (pos.pieces(Black));
-    all_pieces &= (~pos.pieces(Black, Duck));
-
-    for(int sq = 0; sq < 32; sq++){
-        build_dist_table(pos, (Square)sq, table_dist);
-    }
-    for(int sq = 0; sq < 32; sq++){
-        build_chariot_table(pos, (Square)sq, chariot_table);
-    }
-    
+    // info << pos;
     unordered_map<uint32_t, int> table_mst;
-    priority_queue<pair<int, string>, vector<pair<int, string>>, greater<pair<int, string>>> pq;
-    unordered_map<string, int> visited;
-    unordered_map<string, string> predecessor;
-    unordered_map<string, Move> moves;
-    int mst = find_table_mst(pos, table_mst, table_dist);
-    int dist = find_table_dist(pos, table_dist, chariot_table);
-    int f_val = mst + dist + 0;
-    string start = pos.toFEN();
-    visited[start] = 0;
-    predecessor[start] = start;
-    pq.push({f_val, start});
-
-    while(!pq.empty()){
-        string cur_key = pq.top().second;
-        Position cur(cur_key);
-        pq.pop();
-        
-        if(cur.winner() == Black){
+    int reds = BoardView(pos.pieces(Red)).to_vector().size();
+    int threshold = reds + find_table_dist(pos);
+    unordered_map<string, int> TT;
+    while (true) {
+        vector<Move> path;
+        int t = dfs(pos, 0, threshold, path, table_mst, TT);
+        if (t == -1){
             clock_gettime(CLOCK_REALTIME, &end_time);
             double wall_clock_in_seconds =(double)((end_time.tv_sec + end_time.tv_nsec * (1e-9))
                                              - (double)(start_time.tv_sec + start_time.tv_nsec * (1e-9)));
-    
-            info << wall_clock_in_seconds << "\n";
-            info << visited[cur_key] << "\n";
 
-            string tmp = cur_key;
-            vector<Move> ans;
-            while(tmp != predecessor[tmp]){
-                ans.push_back(moves[tmp]);
-                tmp = predecessor[tmp];
-            }
-            reverse(ans.begin(), ans.end());
-            for (auto mv : ans) {
+            info << wall_clock_in_seconds << "\n";
+            info << path.size() << "\n";
+
+            for(Move mv: path){
                 info << mv;
             }
             return;
         }
-
-        MoveList mvs(cur);
-
-        for(Move mv: mvs){
-            Position next_pos(cur);
-            if(!next_pos.do_move(mv)) continue;
-            for(int sq = 0; sq < 32; sq++){
-                build_dist_table(next_pos, (Square)sq, table_dist);
-            }
-            for(int sq = 0; sq < 32; sq++){
-                build_chariot_table(next_pos, (Square)sq, chariot_table);
-            }
-            
-            string next_key = next_pos.toFEN();
-            int cost = visited[cur_key] + 1;
-            if(visited.find(next_key) == visited.end() || cost < visited[next_key]){
-                mst = find_table_mst(next_pos, table_mst, table_dist);
-                dist = find_table_dist(next_pos, table_dist, chariot_table);
-                visited[next_key] = cost;
-                predecessor[next_key] = cur_key;
-                moves[next_key] = mv;
-                f_val = cost + dist + mst;
-                pq.push({f_val, next_key});
-            }
-        }
-        
+        threshold = t;
+        TT.clear();
     }
-
 }
